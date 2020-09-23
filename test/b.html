@@ -1,0 +1,14 @@
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>无标题文档</title>
+</head>
+
+<body>
+    <script>
+        var loc = location.href;
+        var n1 = loc.length;
+        var n2 = loc.indexOf("=");
+        var id = decodeURI(loc.substr(n2+1, n1-n2));
+        alert(id)
+    </script>
+</body>

@@ -1,0 +1,17 @@
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>无标题文档</title>
+</head>
+<script>
+    function test(){
+        var s = document.getElementById("txt")
+        location.href="/test/b.html?" + "txt="+encodeURI(s.value);
+    }
+</script>
+
+<body>
+    <input type="text" id="txt"/>
+    <br/>
+    <input type="button" value="TEST" onclick="test()"/>
+    <a href="test/b.html"></a>
+</body>
