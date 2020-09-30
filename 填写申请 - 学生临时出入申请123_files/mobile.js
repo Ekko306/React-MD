@@ -1962,7 +1962,7 @@
 /**
  * 布局
  * @Author yech
- * @Since 2019/02/25
+ * @Since 2019/03/07
  */
 (function (window, undefined) {
 
@@ -1982,9 +1982,8 @@
             this.createTitle(formEntity);
             this.createCommandBarButtons();
 
-            this.createToolButtons();
-            this.createFloatTool(formEntity);
-            this.createChangePriorityIcon(step);
+            this.createMobileToolButton(step);
+            this.createGoTopToolButton();
 
             this.createEntrustHelper();
             this.createSnapshotHelper(step);
@@ -1996,17 +1995,6 @@
         adjustRender: function () {
             this.adjustVisibility();
             this.adjustRenderContentClass();
-        },
-
-        createToolButtons: function () {
-            this.createPrintInvoiceButton();
-            this.createCompareButton();
-            this.createDownloadButton();
-            this.createPrintButton();
-            this.createSaveButton();
-            this.createAdminButton();
-            this.createReviewButton();
-            this.createDebugButton();
         }
 
     });
@@ -2776,33 +2764,98 @@
         InfoPlus.Render.BaseDialog.call(this, options);
     };
 
+    dialog.RIGHTEST_BUTTON_MARGIN = 16;
+    dialog.DEFAULT_BUTTON_MIN_WIDTH = 88;
+
     dialog.prototype = $.extend(new InfoPlus.Render.BaseDialog(), {
 
-        /**
-         * 初始化位置,desktop版自己计算位置，移动版靠flex定位垂直水平居中
-         */
-        initPosition: function () {
-            var $dialog = $(this.element);
-            $dialog.css("margin-left", "-" + $dialog.width() / 2 + "px");
-            $dialog.css("margin-top", "-" + ($dialog.outerHeight() / 2) + "px");
+        initEvents: function () {
+            var $dialog = $(this.element),
+                $dialogOverlay = $dialog.parent(),
+                instance = this;
+
+            $dialog.click(function (event) {
+                event.stopPropagation();
+            });
+
+            // 在ios的webview下，如果是按某个按钮弹出的对话框，对话框会弹出后自行消失，看上去是点击事件触发了两次，第二次触发让这个Dialog消失了
+            // 在安卓的webview或者ios、安卓的移动浏览器下均没有这个问题
+            // 所以这里延时再给overlay绑定点击事件，那么即使触发2次也不会让对话框自行消失了
+            setTimeout(function () {
+                $dialogOverlay.click(function () {
+                    if ($(this).data("isDialogDisplay") === true) {
+                        instance.close(false);
+                    }
+                });
+            }, 500);
         },
 
-        initDetectHeightChange: function () {
-            var $dialog = $(this.element);
-            $dialog.data("oldHeight", $dialog.outerHeight());
+        //处理按钮宽度(只处理三个以上按钮的情况)，如果计算下来按钮放不下，就设置紧凑模式compact
+        processesButtonWidth: function () {
+            //2个以下按钮就不用计算了
+            if (this.options.buttons.lentgh < 3) {
+                return;
+            }
+            var $dialogDiv = $(this.element),
+                totalWidth = $IU.getWindowWidth(),
+                margin = parseInt($dialogDiv.css("margin-left"), 10) + parseInt($dialogDiv.css("margin-right"), 10);
+            if (totalWidth === 0 || isNaN(margin)) {
+                return;
+            }
+            //因为dialog的宽度设置为外层overlay的90%(在移动端就是屏幕的90%)，又设置了左右margin，取这2个宽度的小的那个
+            var dialogWidth = totalWidth * 0.9;
+            if (dialogWidth > totalWidth - margin) {
+                dialogWidth = totalWidth - margin;
+            }
+            var $buttons = $(this.element).find(".dialog_button");
 
-            var tick = function ($dialog) {
-                return function () {
-                    if ($dialog.data("oldHeight") !== $dialog.outerHeight()) {
-                        $dialog.css("margin-top", "-" + ($dialog.outerHeight() / 2) + "px");
-                        $dialog.data("oldHeight", $dialog.outerHeight());
+            //稍作延时，防止计算位置不对
+            setTimeout(function () {
+                var dialogWidth = $dialogDiv.innerWidth();
+                var calculateButtonWidth = dialog.RIGHTEST_BUTTON_MARGIN;
+
+
+                var firstTop = parseInt($($buttons[0]).offset().top, 10),
+                    tops = [firstTop],
+                    buttonGroup = [];
+                buttonGroup[firstTop] = [];
+
+                $buttons.each(function () {
+                    calculateButtonWidth += $(this).outerWidth();
+                    console.log($(this).outerWidth() + ",total:" + calculateButtonWidth);
+                    var top = parseInt($(this).offset().top, 10);
+                    if (top !== firstTop) {
+                        if (!$IU.arrayContains(tops, top)) {
+                            tops.push(top);
+                            buttonGroup[top] = [this];
+                        } else {
+                            buttonGroup[top].push(this);
+                        }
+                    } else {
+                        buttonGroup[firstTop].push(this);
+                    }
+                });
+
+                console.log(calculateButtonWidth);
+                console.log(dialogWidth);
+                //计算下来按钮的宽度会超出去，就将min-width样式清空，按钮紧凑放置
+                if (dialogWidth <= calculateButtonWidth) {
+                    $buttons.addClass("compact");
+                }
+
+                //不是最后一行所有按钮添加class,目的减小margin-bottom
+                for (var i = 0, len = tops.length - 1; i < len; i++) {
+                    var buttons = buttonGroup[tops[i]];
+                    for (var index = 0, l = buttons.length; index < l; index++) {
+                        $(buttons[index]).addClass("nl");
                     }
                 }
-            };
+
+            }, 200);
 
 
-            this.detectFlag = setInterval(tick($dialog), 300);
         }
+
 
     });
 
@@ -2990,7 +3043,7 @@
     define("InfoPlus.Layout.BaseView", view);
 })(window);
 /**
- * View 视图
+ * View
  * @Author yech
  * @Since 2019/06/18
  */
@@ -3001,24 +3054,179 @@
     };
 
     view.DATA_CONTROL_OBJECT = "viewControl";
+    view.DATA_HIDE_BY_SHRINK_VIEW = "shrinkView";
     view.CLASS_VIEW = "infoplus_view";
     view.CLASS_MOBILE_VIEW = "infoplus_mobile_view";
+    view.CLASS_VIEW_WRAP_OUTER = "infoplus_view_wrap_outer";
+    view.CLASS_VIEW_WRAP_INNER = "infoplus_view_wrap_inner";
+    view.CLASS_UNEXPANDED = "unexpanded";
+    view.CLASS_INVISIBLE = "invisible";
+    view.CLASS_HIDE_FOR_SHRINK = "hideShrink";
+    view.SELECTOR_CLASS_VIEW_WRAP_OUTER = "." + view.CLASS_VIEW_WRAP_OUTER;
+    view.SELECTOR_CLASS_VIEW_WRAP_INNER = "." + view.CLASS_VIEW_WRAP_INNER;
+
+    //清除overflow样式，slideDown时候会自动加上overflow:hidden，这会影响内部左右拖动(当内部view宽度大于屏幕宽度时)，所以动画结束后清除overflow
+    var clearOverflow = function (innerWrapElement) {
+        $(innerWrapElement).css("overflow", "");
+    };
 
     view.prototype = $.extend(new InfoPlus.Layout.BaseView(), {
+
+        //是否展开
+        expanded: true,
 
         //添加viewDom上的样式class
         addViewClass: function () {
             this.element.id = this.id;
-            $(this.element).addClass(InfoPlus.Layout.View.CLASS_VIEW)
-                .addClass("round-corner").addClass("shadow")
-                .data(view.DATA_CONTROL_OBJECT, this);
+            $(this.element).addClass(InfoPlus.Layout.View.CLASS_VIEW).data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT, this);
+            if (this.render.mobile === true) {
+                $(document.body).addClass(InfoPlus.Layout.View.CLASS_MOBILE_VIEW);
+            }
         },
 
         //将view的dom添加到表单上
         appendViewDom: function () {
-            this.holder.appendChild(this.element);
-        }
+            var innerWrapDiv = document.createElement("div");
+            $(innerWrapDiv).addClass(view.CLASS_VIEW_WRAP_INNER);
+            if ($.browser.msie) {
+                //windows phone下IE 滚动条比较粗
+                $(innerWrapDiv).css("top", "17px");
+            }
+            innerWrapDiv.appendChild(this.element);
+            var outerWrapDiv = document.createElement("div");
+            $(outerWrapDiv).addClass(view.CLASS_VIEW_WRAP_OUTER);
+            outerWrapDiv.appendChild(innerWrapDiv);
+            this.holder.appendChild(outerWrapDiv);
 
+        },
+
+        //添加view的标签
+        appendLabel: function () {
+            if (this.label == null) return;
+            if (this.label.getElement() != null) {
+                $(this.label.getElement()).insertBefore($(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER));
+            }
+        },
+
+        show: function () {
+            $(this.element).show();
+            $(this.menuItem).show();
+            this.label.show();
+            $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).removeClass(view.CLASS_INVISIBLE);
+
+        },
+
+        hide: function () {
+            $(this.element).hide();
+            $(this.menuItem).hide();
+            this.label.hide();
+            $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).addClass(view.CLASS_INVISIBLE);
+        },
+
+        //展开
+        expand: function (animate, isForCheck) {
+            var viewInstance = this,
+                PopTip = InfoPlus.Render.PopTip;
+
+            //展开时候重新显示因为折拢而隐藏的PopTip(批注，比较等)
+            var showPopTips = function () {
+                $($$.params.renderContainer).children(PopTip.SELECTOR_CLASS_TIP).each(function () {
+                    var tipControl = $(this).data(PopTip.DATA_TIP_CONTROL);
+                    if (tipControl != null) {
+                        if ($(tipControl.element).data(view.DATA_HIDE_BY_SHRINK_VIEW) === viewInstance) {
+                            tipControl.showByExpandView();
+                        }
+                    }
+                });
+            };
+
+            //展开时候重新显示因为折拢而隐藏的验证出错气泡
+            var showErrorDivs = function () {
+                var $errorDivs = $("body").children("div.formError." + view.CLASS_HIDE_FOR_SHRINK);
+                for (var i = 0; i < $errorDivs.length; i++) {
+                    var $errorDiv = $($errorDivs[i]);
+                    if ($errorDiv.data(view.DATA_HIDE_BY_SHRINK_VIEW) === viewInstance) {
+                        var $element = $errorDiv.data("element");
+                        if ($element != null) {
+                            $errorDiv.removeClass(view.CLASS_HIDE_FOR_SHRINK);
+                            //重新显示气泡不用动画
+                            $element.validationEngine('updatePromptPosition', false);
+                        }
+                    }
+                }
+            };
+
+            if (!animate) {
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER).show();
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).removeClass(view.CLASS_UNEXPANDED);
+                showErrorDivs();
+                showPopTips();
+                if (isForCheck !== true) {
+                    $IU.updateFormTips(animate);
+                }
+            } else {
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER).slideDown('slow', function () {
+                    showErrorDivs();
+                    showPopTips();
+                    $IU.updateFormTips(animate);
+                    clearOverflow(this);
+                });
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).removeClass(view.CLASS_UNEXPANDED);
+            }
+            this.expanded = true;
+        },
+
+        //折起来
+        shrink: function (animate, isForCheck) {
+            var viewInstance = this,
+                $innerView = $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER),
+                PopTip = InfoPlus.Render.PopTip;
+
+            //隐藏这个view下的PopTip(批注，比较等),展开的时候需要重新显示
+            var hidePopTips = function () {
+                $($$.params.renderContainer).children(PopTip.SELECTOR_CLASS_TIP).each(function () {
+                    var tipControl = $(this).data(PopTip.DATA_TIP_CONTROL);
+                    if (tipControl != null) {
+                        var options = tipControl.options,
+                            $popper = $(options.popper);
+                        if ($popper.parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER)[0] === $innerView[0]) {
+                            tipControl.hideByShrinkView(viewInstance);
+                        }
+                    }
+                });
+            };
+
+            //隐藏这个view下的验证出错提示,展开时重新显示
+            var hideErrorDivs = function () {
+                var $errorDivs = $("body").children('div.formError');
+                for (var i = 0; i < $errorDivs.length; i++) {
+                    var $errorDiv = $($errorDivs[i]),
+                        $element = $errorDiv.data("element");
+                    if ($element != null) {
+                        if ($element.parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER)[0] === $innerView[0]) {
+                            $errorDiv.addClass(view.CLASS_HIDE_FOR_SHRINK).data(view.DATA_HIDE_BY_SHRINK_VIEW, viewInstance);
+                        }
+                    }
+                }
+            };
+
+            hideErrorDivs();
+            hidePopTips();
+            if (!animate) {
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER).hide();
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).addClass(view.CLASS_UNEXPANDED);
+                if (isForCheck !== true) {
+                    $IU.updateFormTips(animate);
+                }
+            } else {
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_INNER).slideUp('slow', function () {
+                    $IU.updateFormTips(animate);
+                    clearOverflow(this);
+                });
+                $(this.element).parents(view.SELECTOR_CLASS_VIEW_WRAP_OUTER).addClass(view.CLASS_UNEXPANDED);
+            }
+            this.expanded = false;
+        }
     });
 
     define("InfoPlus.Layout.View", view);
@@ -3666,41 +3874,6 @@
         InfoPlus.Theme.BaseComponent.call(this, options);
     };
 
-
-    var adjustTop = function ($div, position) {
-
-        var show = function (top, delay) {
-            setTimeout(function () {
-                $div.show();
-                $div.css("top", top + "px");
-            }, delay != null ? delay : 0);
-        };
-        var $commandBar = $div.parent("#form_command_bar");
-        var totalHeight = ($commandBar.length > 0 ? $commandBar.height() : 0) + 2,
-            margin = 4,
-            $prevs = $div.prevAll(".commandBar_helper." + position);
-        if ($prevs.length === 0) {
-            show(totalHeight);
-        } else {
-            var ready = true;
-            $prevs.each(function () {
-                var height = $(this).height();
-                if (height === 0) {
-                    ready = false;
-                }
-                totalHeight += ($(this).outerHeight() + margin);
-            });
-            if (ready === true) {
-                show(totalHeight, $prevs.length * 500);
-            } else {
-                setTimeout(function () {
-                    adjustTop($div, position);
-                }, 100);
-            }
-        }
-
-    };
-
     helper.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
 
         render: function () {
@@ -3718,13 +3891,21 @@
                 $div = $(div);
             if (options.content != null) {
                 $div.append(options.content).addClass("commandBar_helper round-corner z-depth-1");
-                if (options.position != null) {
-                    $div.addClass(options.position);
-                }
+            }
+
+            if (options.color != null) {
+                $div.css("color", options.color);
+            }
+
+            if (options.backgroundColor != null) {
+                $div.css("background-color", options.backgroundColor);
+            }
+
+            if(options.position==="top") {
+                $div.addClass("top");
             }
 
             if (options.showDismiss === true) {
-                //如果发现content已经存在linkDiv,那么就在这个linkDiv上显示dismiss
                 var linkDiv = ($(options.content).find(".helper_link_div").length === 0 ? document.createElement("div") : $(options.content).find(".helper_link_div")[0]),
                     $linkDiv = $(linkDiv);
                 var linkClose = document.createElement("a");
@@ -3757,10 +3938,16 @@
 
             }
 
-            if (options.position != null) {
-                setTimeout(function () {
-                    adjustTop($div, options.position);
-                }, 500);
+
+            var maxTop = 0;
+            $(".commandBar_helper").each(function () {
+                var top = parseInt($(this).css("top"));
+                if (top > maxTop) {
+                    maxTop = top + $(this).outerHeight();
+                }
+            });
+            if (maxTop !== 0) {
+                $div.css("top", (maxTop + 10) + "px");
             }
 
             if (options.color != null) {
@@ -3771,15 +3958,17 @@
                 $div.css("background-color", options.backgroundColor);
             }
 
+
             if (options.autoWidth === true) {
                 var wrapDiv = document.createElement("div");
                 $(wrapDiv).addClass("commandBar_helper_wrapDiv").append(div);
                 $div.css("width", options.width).addClass("autoWidth");
 
-                $div.hide();
+
                 return wrapDiv;
             }
-            $div.hide();
+
+
             return div;
         },
 
@@ -3789,6 +3978,7 @@
                 if (hideAtOnce === true) {
                     $element.remove();
                 } else {
+
                     var $transitionElement = $element;
                     if ($element.children(".commandBar_helper").length > 0) {
                         $transitionElement = $element.children(".commandBar_helper");
@@ -3796,7 +3986,7 @@
                     var transitionEventName = $IU.getTransitionEndEventName();
                     if (transitionEventName != null) {
                         if (parseInt($transitionElement.css("top"), 10) === 0) {
-                            $transitionElement.css("top", "-" + ($transitionElement.outerHeight() + 10) + "px");
+                            $transitionElement.css("top", "-" + ($transitionElement.outerHeight()+10) + "px");
                         } else {
                             $transitionElement.css("top", "");
                             $transitionElement.removeClass("show");
@@ -3970,6 +4160,1122 @@
 })(window);
 
 /**
+ * 弹出页面
+ * @Author yech
+ * @Since 2016/05/19
+ */
+
+(function (window, undefined) {
+
+    /**
+     * @param options 格式
+     * ｛
+     *      title:{string}                          //标题
+     *      content:{string}                        //内容，可以是html
+     *      onShow:{function}                       //对话框显示完毕后回调
+     *      onClose:{function}                      //对话框关闭时候回调
+     *      isDoAction{boolean}(false)              //是否是按了提交按钮而显示的page,缺省false
+     *      omitReturn                              //是否不显示退回按钮
+     *      appendToBody                            //是否将page添加到body
+     *      uri{string}                             //内嵌iframe显示uri链接地址
+     *      buttons: [                              //按钮对象，显示次序为从右向左
+     *          {
+     *              name:{string},                  //按钮名称
+     *              defaultButton:{boolean}(false), //是否高亮显示,缺省false
+     *              callback:{function},            //回调
+     *              preventDefault:{boolean}(false),//回调是否可能阻止对话框的关闭,缺省false
+     *              callOnClose:{boolean}(false)    //是否在对话框隐藏时候调用该按钮的回调,缺省false
+     *              className:{string}              //css类名，用于添加额外的样式
+     *          }
+     *      ]
+     *  ｝
+     */
+    var page = function (options) {
+        if (options == null) return;
+        this.id = Math.round(Math.random() * 1000000);
+        InfoPlus.Theme.BaseComponent.call(this, options);
+    };
+
+    page.DATA_PAGE_OBJECT = "pageObject";
+
+    page.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
+
+        id: null,
+        scrollTop: 0,
+        transitionEndEventName: null,
+
+        render: function () {
+            var pageDiv = this.createPage();
+            this.element = pageDiv;
+            this.initOptions();
+            this.createButtons();
+            return pageDiv;
+        },
+
+
+        initEvents: function () {
+            var instance = this;
+            $(this.returnButton).one("click", function () {
+                instance.close();
+                return false;
+            });
+        },
+        /**
+         * 根据初始化参数设置对话框外观
+         */
+        initOptions: function () {
+            var options = this.options,
+                $page = $(this.element);
+
+            //如果options.onShow不为空，那么在show完毕后调用
+            if (options.onShow != null && typeof options.onShow === "function") {
+                $page.data("onShowCallback", options.onShow);
+            }
+
+            //如果options.onClose不为空，那么在close时候调用
+            if (options.onClose != null && typeof options.onClose === "function") {
+                $page.data("onCloseCallback", options.onClose);
+            }
+
+            if (options.isDoAction === true) {
+                $page.removeClass("hideLeft");
+            } else {
+                $page.addClass("hideLeft");
+            }
+
+            var content = options.content,
+                title = options.title;
+
+            if (title != null && title !== "") {
+                $page.find(".mobile_page_title_content_div").text(title);
+            }
+
+            var $pageContentDiv = $page.find(".mobile_page_content_div"),
+                $pageContentWrapDiv = $page.find(".mobile_page_content_wrap_div"),
+                $pageContentInnerDiv = $page.find(".mobile_page_content_inner_div"),
+                $pageFooterDiv = $page.find(".mobile_page_footer_div");
+            if (options.uri != null) {
+                $pageFooterDiv.addClass("hide");
+                $pageContentDiv.addClass("full");
+
+                var iframe = document.createElement("iframe");
+                iframe.src = options.uri;
+                iframe.setAttribute("width", "100%");
+                //var padding = parseInt($pageContentWrapDiv.css("padding-top"), 10) + parseInt($pageContentWrapDiv.css("padding-bottom"), 10);
+                //iframe.setAttribute("height", ($pageContentDiv.height() - padding) + "px");
+                iframe.setAttribute("height", "100%");
+                $(iframe).css("border", "none");
+                $pageContentInnerDiv.append(iframe);
+            } else {
+                $pageFooterDiv.removeClass("hide");
+                $pageContentDiv.removeClass("full");
+                if (content instanceof jQuery) {
+                    content.detach().appendTo($pageContentInnerDiv);
+                    if (!content.is(":visible")) {
+                        content.show();
+                    }
+                } else {
+                    $pageContentInnerDiv.html(content);
+                }
+            }
+        },
+
+
+        createPage: function () {
+            //var $page = $("#mobile_page_div");
+            //if ($page.size() == 0) {
+            var pageDiv = document.createElement("div"),
+                $pageDiv = $(pageDiv);
+            $pageDiv.attr("id", "page_container_" + this.id).addClass("mobile_page_div").css("z-index", "-1");
+            var titleDiv = document.createElement("div");
+            //titleDiv.setAttribute("id", "mobile_page_title_div");
+            $(titleDiv).addClass("mobile_page_title_div");
+
+            var titleContentDiv = document.createElement("div");
+            //titleContentDiv.setAttribute("id", "mobile_page_title_content_div");
+            $(titleContentDiv).addClass("mobile_page_title_content_div");
+
+            if (!this.options.omitReturn === true) {
+                var returnSpan = document.createElement("span");
+                //returnSpan.setAttribute("id", "mobile_page_return_span");
+                $(returnSpan).addClass("mobile_page_return_span");
+                this.returnButton = returnSpan;
+                var backIcon = document.createElement("i");
+                backIcon.setAttribute("class", "i-icon-arrow-back");
+                returnSpan.appendChild(backIcon);
+
+                titleDiv.appendChild(returnSpan);
+            }
+
+            titleDiv.appendChild(titleContentDiv);
+
+            var contentDiv = document.createElement("div"),
+                contentWrapDiv = document.createElement("div"),
+                contentInnerDiv = document.createElement("div");
+            //contentDiv.setAttribute("id", "mobile_page_content_div");
+            //contentWrapDiv.setAttribute("id", "mobile_page_content_wrap_div");
+            //contentInnerDiv.setAttribute("id", "mobile_page_content_inner_div");
+            $(contentDiv).addClass("mobile_page_content_div");
+            $(contentWrapDiv).addClass("mobile_page_content_wrap_div");
+            $(contentInnerDiv).addClass("mobile_page_content_inner_div");
+            contentWrapDiv.appendChild(contentInnerDiv);
+            contentDiv.appendChild(contentWrapDiv);
+
+            var footerDiv = document.createElement("div");
+            //footerDiv.setAttribute("id", "mobile_page_footer_div");
+            $(footerDiv).addClass("mobile_page_footer_div");
+
+            $pageDiv.append(titleDiv).append(contentDiv).append(footerDiv);
+
+
+            //} else {
+            //    this.clearContent();
+            //    pageDiv = $page[0];
+            //}
+            $(pageDiv).data(page.DATA_PAGE_OBJECT, this);
+
+            if (this.options.isDoAction === true || this.options.appendToBody === true) {
+                document.body.appendChild(pageDiv);
+            } else {
+                //加入到renderForm是为了验证
+                $("#renderForm").append(pageDiv);
+            }
+
+            return pageDiv;
+        },
+
+        /**
+         * 创建按钮
+         */
+        createButtons: function () {
+            var buttons = this.options.buttons,
+                $page = $(this.element),
+                $pageFooter = $page.find(".mobile_page_footer_div"),
+                instance = this,
+                $defaultButton;
+
+            //create buttons
+            if (buttons === undefined) {
+                buttons = [{name: $$.lt("common.ok")}];
+            } else {
+                if (!$IU.isArray(buttons)) {
+                    buttons = [buttons];
+                } else {
+                    if (buttons.length === 0) {
+                        buttons = [{name: $$.lt("common.ok")}];
+                    }
+                }
+            }
+
+            for (var i = 0, len = buttons.length; i < len; i++) {
+                var button = buttons[i],
+                    buttonSpan = document.createElement("span"),
+                    $buttonSpan = $(buttonSpan);
+                $buttonSpan.addClass("mobile_page_button").text(button.name !== undefined ? button.name : $$.lt("common.ok"));
+                if (button.defaultButton === true || len === 1) {
+                    $buttonSpan.addClass("default");
+                    $defaultButton = $buttonSpan;
+                }
+                if (button.className !== undefined) {
+                    $buttonSpan.addClass(button.className);
+                }
+                //如果有button有callback且callOnClose为true，那么hide时候要调用该button的callback
+                if (button.callOnClose === true && button.callback != null && typeof button.callback === "function") {
+                    $page.data("callback", button.callback);
+                }
+                $buttonSpan.data("button", button);
+                $pageFooter.append(buttonSpan);
+
+                $buttonSpan.addClass("fr");
+
+                var buttonClick = function () {
+                    var button = $(this).data("button"),
+                        callback = button.callback,
+                        preventDefault = button.preventDefault;
+                    if (preventDefault === true) {
+                        var close = true;
+                        if (callback != null && typeof callback === "function") {
+                            close = callback();
+                        }
+                        if (close !== false) {
+                            instance.close();
+                        } else {
+                            //callback返回false，不能关闭，再次绑定事件
+                            $(this).one("click", buttonClick);
+                        }
+                    } else {
+                        //如果是callOnClose的，那么回调函数在dialog消失后调用，这里不执行
+                        if (!button.callOnClose === true) {
+                            if (callback != null && typeof callback === "function") {
+                                callback();
+                            }
+                        }
+                        instance.close();
+                    }
+                    return false;
+                };
+                $(buttonSpan).one("click", buttonClick);
+            }
+        },
+
+        //改变已有的按钮,index为从右向左的序号
+        changeButton: function (index, button) {
+            var $page = $(this.element),
+                $pageFooter = $page.find(".mobile_page_footer_div"),
+                $buttons = $pageFooter.children(".mobile_page_button");
+
+            if ($buttons.length > index) {
+                var $buttonSpan = $($buttons[index]);
+                if (button.name != null) {
+                    $buttonSpan.text(button.name);
+                }
+            }
+        },
+
+        clearContent: function () {
+            $(this.element).find(".mobile_page_title_content_div").empty();
+            $(this.element).find(".mobile_page_content_inner_div").empty();
+            $(this.element).find(".mobile_page_footer_div").empty();
+
+            //$("#mobile_page_title_content_div").empty();
+            //$("#mobile_page_content_inner_div").empty();
+            //$("#mobile_page_footer_div").empty();
+        },
+
+        getTransitionEndEventName: function () {
+            if (this.transitionEndEventName != null) {
+                return this.transitionEndEventName;
+            }
+            var el = document.createElement('fake'),
+                transEndEventNames = {
+                    'WebkitTransition': 'webkitTransitionEnd',
+                    'transition': 'transitionend',
+                    'MozTransition': 'transitionend',
+                    'OTransition': 'oTransitionEnd',
+                    'msTransition': 'MSTransitionEnd'
+                };
+
+            for (var t in transEndEventNames) {
+                if (transEndEventNames.hasOwnProperty(t)) {
+                    if (el.style[t] !== undefined) {
+                        this.transitionEndEventName = transEndEventNames[t];
+                        return transEndEventNames[t];
+                    }
+                }
+            }
+            return null;
+        },
+
+        show: function () {
+
+            var $renderContainer = this.options.isDoAction === true ? $("#div_render_container") : $("#div_content"),
+                $page = $(this.element),
+                $header = $("#header_holder");
+            if (this.isOpen()) return;
+            var scrollTop = $(document).scrollTop();
+            //记录滚动位置，在关闭时候可以滚动回老位置
+            this.scrollTop = scrollTop;
+            if (this.options.isDoAction === true) {
+                var titleBarHeight = $("#title_content").height();
+                if (scrollTop > titleBarHeight) {
+                    $header.css("position", "absolute").css("top", (scrollTop - titleBarHeight) + "px");
+                } else {
+                    $header.css("position", "absolute").css("top", "0");
+                }
+            }
+
+            $renderContainer.removeClass("show").addClass("hide");
+
+            var eventName = this.getTransitionEndEventName();
+            // safari某些情况下(直接打开表单不拖动、不开调试)不放在setTimeout中不会触发transition动画
+            // by marstone, 2018/08/31
+            setTimeout(function () {
+                var afterShow = function () {
+                    //调用options.onShow
+                    var onShowCallback = $page.data("onShowCallback");
+                    if (onShowCallback != null && typeof onShowCallback === "function") {
+                        onShowCallback();
+                    }
+                    $(document.body).addClass("noScroll");
+                    $page.data("onShowCallback", null);
+                };
+                if (eventName != null) {
+                    $page.one(eventName, afterShow);
+                    // 先注册事件，再开始动画
+                    $page.css("z-index", "10").addClass("display");
+                } else {
+                    $page.css("z-index", "10").addClass("display");
+                    afterShow();
+                }
+            }, 0);
+        },
+
+        close: function () {
+            var $renderContainer = this.options.isDoAction === true ? $("#div_render_container") : $("#div_content"),
+                $page = $(this.element),
+                $header = $("#header_holder");
+
+            $IU.clearErrorPrompt($page);
+            $(document.body).removeClass("noScroll");
+            $(document).scrollTop(this.scrollTop);
+
+            $page.removeClass("display");
+            if (!(this.options.isDoAction === true)) {
+                $page.addClass("hideLeft");
+            }
+            $renderContainer.removeClass("hide").addClass("show");
+
+            var eventName = this.getTransitionEndEventName();
+            var instance = this;
+            var showRenderContainer = function () {
+                $renderContainer.removeClass("show");
+                if (instance.options.isDoAction === true) {
+                    var scrollTop = $(document).scrollTop(),
+                        titleBarHeight = $("#title_content").height();
+                    var titleCommandTop = (scrollTop < titleBarHeight) ? -scrollTop : -titleBarHeight;
+                    $header.css("position", "").css("top", titleCommandTop + "px");
+                }
+            };
+            var removePage = function () {
+                $page.css("z-index", "-1");
+                //如果按钮是callOnClose的，调用按钮回调函数
+                var callback = $page.data("callback");
+                if (callback != null && typeof callback === "function") {
+                    callback();
+                }
+                //调用options.onClose
+                var closeCallback = $page.data("onCloseCallback");
+                if (closeCallback != null && typeof closeCallback === "function") {
+                    closeCallback();
+                }
+                //instance.clearContent();
+                //$page.data("callback", null).data("onCloseCallback", null);
+                $page.remove();
+            };
+
+
+            if (eventName != null) {
+                $renderContainer.one(eventName, showRenderContainer);
+                $page.one(eventName, removePage);
+            } else {
+                showRenderContainer();
+                removePage();
+            }
+            //$("#mobile_page_return_span").off("click");
+            $(this.returnButton).off("click");
+        },
+
+        isOpen: function () {
+            return $(this.element).hasClass("display");
+        }
+    });
+
+    define("InfoPlus.Render.Mobile.Page", page);
+
+})(window);
+
+/**
+ * 底部弹出页面
+ * @Author yech
+ * @Since 2017/12/22
+ */
+
+(function (window, undefined) {
+
+    /**
+     * @param options 格式
+     * ｛
+     *      content:{string}                        //内容，可以是html
+     *      onShow:{function}                       //对话框显示完毕后回调
+     *      onClose:{function}                      //对话框关闭时候回调
+     *      buttons: [                              //按钮对象，显示次序为从右向左
+     *          {
+     *              name:{string},                  //按钮名称
+     *              defaultButton:{boolean}(false), //是否高亮显示,缺省false
+     *              callback:{function},            //回调
+     *              preventDefault:{boolean}(false),//回调是否可能阻止对话框的关闭,缺省false
+     *              callOnClose:{boolean}(false)    //是否在对话框隐藏时候调用该按钮的回调,缺省false
+     *          }
+     *      ]
+     *  ｝
+     */
+    var bottomSheet = function (options) {
+        if (options == null) return;
+        this.id = Math.round(Math.random() * 1000000);
+        InfoPlus.Theme.BaseComponent.call(this, options);
+    };
+
+    bottomSheet.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
+
+        id: null,
+        scrollTop: 0,
+        transitionEndEventName: null,
+
+        render: function () {
+            this.element = this.createPage();
+            this.initOptions();
+            this.createButtons();
+            this.initOverlayEvents();
+            return this.element;
+        },
+
+        initOverlayEvents: function () {
+            var instance = this,
+                _overlay = this.element,
+                _clientY = null, // remember Y position on touch start
+                contentDiv = $(this.element).find(".bottom_sheet_content_div")[0];
+            _overlay.addEventListener('touchstart', function (event) {
+
+                if (event.targetTouches.length === 1) {
+                    //如果点的是背景，关闭本页
+                    if (event.targetTouches[0].target.className === "bottom_sheet_overlay") {
+                        event.preventDefault();
+                        setTimeout(function () {
+                            instance.close();
+                        }, 0);
+                    }
+
+                    // detect single touch
+                    _clientY = event.targetTouches[0].clientY;
+                }
+            }, false);
+
+            _overlay.addEventListener('touchmove', function (event) {
+                if (event.targetTouches.length === 1) {
+                    // detect single touch
+                    disableRubberBand(event);
+                }
+            }, false);
+
+            var disableRubberBand = function (event) {
+                var clientY = event.targetTouches[0].clientY - _clientY;
+
+                //已经滚动到顶端，不能往下拉
+                if (contentDiv.scrollTop === 0 && clientY > 0) {
+                    event.preventDefault();
+                }
+
+                //已经滚动到底端，不能往上拖
+                if (isOverlayTotallyScrolled() && clientY < 0) {
+                    event.preventDefault();
+                }
+            };
+
+            var isOverlayTotallyScrolled = function () {
+                // https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight#Problems_and_solutions
+                return contentDiv.scrollHeight - contentDiv.scrollTop <= contentDiv.clientHeight;
+            };
+        },
+
+        /**
+         * 根据初始化参数设置对话框外观
+         */
+        initOptions: function () {
+            var options = this.options,
+                $sheet = $(this.element);
+
+            //如果options.onShow不为空，那么在show完毕后调用
+            if (options.onShow != null && typeof options.onShow === "function") {
+                $sheet.data("onShowCallback", options.onShow);
+            }
+
+            //如果options.onClose不为空，那么在close时候调用
+            if (options.onClose != null && typeof options.onClose === "function") {
+                $sheet.data("onCloseCallback", options.onClose);
+            }
+
+            var $sheetContentInnerDiv = $sheet.find(".bottom_sheet_content_inner_div");
+
+            var content = options.content;
+
+            if (content instanceof jQuery) {
+                content.detach().appendTo($sheetContentInnerDiv);
+                if (!content.is(":visible")) {
+                    content.show();
+                }
+            } else {
+                $sheetContentInnerDiv.html(content);
+            }
+
+        },
+
+
+        createPage: function () {
+            var maskDiv = document.createElement("div"),
+                $maskDiv = $(maskDiv),
+                containerDiv = document.createElement("div"),
+                $containerDiv = $(containerDiv);
+
+            $maskDiv.addClass("bottom_sheet_overlay").append(containerDiv);
+
+            $containerDiv.attr("id", "bottom_sheet_container_" + this.id)
+                .addClass("bottom_sheet_container_div");
+
+            var contentDiv = document.createElement("div"),
+                contentWrapDiv = document.createElement("div"),
+                contentInnerDiv = document.createElement("div");
+
+            $(contentDiv).addClass("bottom_sheet_content_div").addClass("z-depth-1");
+            $(contentWrapDiv).addClass("bottom_sheet_content_wrap_div");
+            $(contentInnerDiv).addClass("bottom_sheet_content_inner_div");
+            contentWrapDiv.appendChild(contentInnerDiv);
+            contentDiv.appendChild(contentWrapDiv);
+            $containerDiv.append(contentDiv);
+
+            var buttons = this.options.buttons;
+            if (buttons !== undefined && buttons.length > 0) {
+                var footerDiv = document.createElement("div");
+                $(footerDiv).addClass("bottom_sheet_footer_div");
+                $containerDiv.append(footerDiv);
+            } else {
+                $(contentDiv).addClass("full");
+                //$(containerDiv).addClass("noFoot");
+            }
+
+            $(contentInnerDiv).css("max-height", Math.round($(window).height() * 0.65) + "px")
+                .css("min-height", Math.round($(window).height() * 0.4) + "px");
+
+            document.body.appendChild(maskDiv);
+
+            return maskDiv;
+        },
+
+        /**
+         * 创建按钮
+         */
+        createButtons: function () {
+            var buttons = this.options.buttons,
+                $sheet = $(this.element),
+                $sheetFooter = $sheet.find(".bottom_sheet_footer_div"),
+                instance = this,
+                $defaultButton;
+
+            //create buttons
+            if (buttons === undefined) {
+                buttons = [];
+            } else {
+                if (!$IU.isArray(buttons)) {
+                    buttons = [buttons];
+                }
+            }
+
+            for (var i = 0, len = buttons.length; i < len; i++) {
+                var button = buttons[i],
+                    buttonSpan = document.createElement("span"),
+                    $buttonSpan = $(buttonSpan);
+                $buttonSpan.addClass("mobile_page_button").text(button.name !== undefined ? button.name : $$.lt("common.ok"));
+                if (button.defaultButton === true || len === 1) {
+                    $buttonSpan.addClass("default");
+                    $defaultButton = $buttonSpan;
+                }
+                //如果有button有callback且callOnClose为true，那么hide时候要调用该button的callback
+                if (button.callOnClose === true && button.callback != null && typeof button.callback === "function") {
+                    $sheet.data("callback", button.callback);
+                }
+                $buttonSpan.data("button", button);
+                $sheetFooter.append(buttonSpan);
+
+                $buttonSpan.addClass("fr");
+
+                var buttonClick = function () {
+                    var button = $(this).data("button"),
+                        callback = button.callback,
+                        preventDefault = button.preventDefault;
+                    if (preventDefault === true) {
+                        var close = true;
+                        if (callback != null && typeof callback === "function") {
+                            close = callback();
+                        }
+                        if (close !== false) {
+                            instance.close();
+                        } else {
+                            //callback返回false，不能关闭，再次绑定事件
+                            $(this).one("click", buttonClick);
+                        }
+                    } else {
+                        //如果是callOnClose的，那么回调函数在dialog消失后调用，这里不执行
+                        if (!button.callOnClose === true) {
+                            if (callback != null && typeof callback === "function") {
+                                callback();
+                            }
+                        }
+                        instance.close();
+                    }
+                    return false;
+                };
+                $(buttonSpan).one("click", buttonClick);
+            }
+        },
+
+
+        clearContent: function () {
+            $(this.element).find(".bottom_sheet_content_inner_div").empty();
+            $(this.element).find(".bottom_sheet_footer_div").empty();
+        },
+
+        getTransitionEndEventName: function () {
+            if (this.transitionEndEventName != null) {
+                return this.transitionEndEventName;
+            }
+            var el = document.createElement('fake'),
+                transEndEventNames = {
+                    'WebkitTransition': 'webkitTransitionEnd',
+                    'transition': 'transitionend',
+                    'MozTransition': 'transitionend',
+                    'OTransition': 'oTransitionEnd',
+                    'msTransition': 'MSTransitionEnd'
+                };
+
+            for (var t in transEndEventNames) {
+                if (transEndEventNames.hasOwnProperty(t)) {
+                    if (el.style[t] !== undefined) {
+                        this.transitionEndEventName = transEndEventNames[t];
+                        return transEndEventNames[t];
+                    }
+                }
+            }
+            return null;
+        },
+
+        animateHide: function (position, callback) {
+            var $sheet = $(this.element),
+                $container = $sheet.find(".bottom_sheet_container_div");
+            $sheet.data("oldPosition", {
+                left: $container.css("left"),
+                bottom: $container.css("bottom"),
+                width: $container.width(),
+                height: $container.height()
+            });
+            $(document.body).removeClass("noScrollSheet");
+            $container.addClass("animate");
+            $container.animate(position, 200, function () {
+                $container.removeClass("animate");
+                $sheet.hide();
+                if (callback != null && (typeof callback === 'function')) {
+                    callback();
+                }
+            })
+        },
+
+        animateShow: function (callback) {
+            var $sheet = $(this.element),
+                $container = $sheet.find(".bottom_sheet_container_div");
+            $(document.body).addClass("noScrollSheet");
+            $sheet.show();
+            $container.addClass("animate");
+            $container.animate($sheet.data("oldPosition"), 200, function () {
+                $container.removeClass("animate");
+                $container.css("width", "").css("height", "").css("left", "").css("bottom", "").css("overflow","");
+                if (callback != null && (typeof callback === 'function')) {
+                    callback();
+                }
+            });
+        },
+
+
+        show: function () {
+            var instance = this;
+            setTimeout(function () {
+                var $sheet = $(instance.element),
+                    $container = $sheet.find(".bottom_sheet_container_div");
+                $container.addClass("show");
+                var afterShow = function () {
+                    //调用options.onShow
+                    var onShowCallback = $sheet.data("onShowCallback");
+                    if (onShowCallback != null && typeof onShowCallback === "function") {
+                        onShowCallback();
+                    }
+                    $(document.body).addClass("noScrollSheet");
+                    $sheet.data("onShowCallback", null);
+                };
+
+                var eventName = instance.getTransitionEndEventName();
+                if (eventName != null) {
+                    $container.one(eventName, afterShow);
+                } else {
+                    afterShow();
+                }
+            }, 100);
+        },
+
+        close: function (sheetCloseCallback) {
+            var $sheet = $(this.element);
+            $(document.body).removeClass("noScrollSheet");
+
+            var $container = $sheet.find(".bottom_sheet_container_div");
+            $container.removeClass("show");
+
+            var eventName = this.getTransitionEndEventName();
+
+            var removeSheet = function () {
+                //如果按钮是callOnClose的，调用按钮回调函数
+                var callback = $sheet.data("callback");
+                if (callback != null && typeof callback === "function") {
+                    callback();
+                }
+                //调用options.onClose
+                var closeCallback = $sheet.data("onCloseCallback");
+                if (closeCallback != null && typeof closeCallback === "function") {
+                    closeCallback();
+                }
+
+                if (sheetCloseCallback != null && typeof sheetCloseCallback === "function") {
+                    sheetCloseCallback();
+                }
+
+                setTimeout(function () {
+                    $sheet.remove();
+                }, 0);
+            };
+
+            if (eventName != null) {
+                $container.one(eventName, removeSheet);
+
+            } else {
+                removeSheet();
+            }
+
+
+        },
+
+        appear: function () {
+            $(document.body).addClass("noScrollSheet");
+            $(this.element).show();
+        },
+
+        hide: function () {
+            $(document.body).removeClass("noScrollSheet");
+            $(this.element).hide();
+        }
+
+
+    });
+
+    define("InfoPlus.Render.Mobile.BottomSheet", bottomSheet);
+
+})(window);
+
+/**
+ * 左侧或右侧弹出页面
+ * @Author yech
+ * @Since 2019/09/05
+ */
+
+(function (window, undefined) {
+
+    /**
+     * @param options 格式
+     * ｛
+     *      content:{string}                        //内容，可以是html
+     *      side:{string left|right}(left)          //出现在左侧(left)还是右侧(right),缺省left
+     *      hasPadding{boolean}(true)               //是否带padding内边距，缺省true,如果false,显示的content自己管理内边距
+     *      onShow:{function}                       //对话框显示完毕后回调
+     *      onClose:{function}                      //对话框关闭时候回调
+     *  ｝
+     */
+    var sheet = function (options) {
+        if (options == null) return;
+        this.id = Math.round(Math.random() * 1000000);
+        InfoPlus.Theme.BaseComponent.call(this, options);
+    };
+
+    sheet.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
+
+        id: null,
+        scrollTop: 0,
+        transitionEndEventName: null,
+
+        render: function () {
+            this.element = this.createPage();
+            this.initOptions();
+            this.initOverlayEvents();
+            return this.element;
+        },
+
+        initOverlayEvents: function () {
+            var instance = this,
+                _overlay = this.element,
+                _clientY = null, // remember Y position on touch start
+                contentDiv = $(this.element).find(".sheet_content_div")[0];
+            _overlay.addEventListener('touchstart', function (event) {
+
+                if (event.targetTouches.length === 1) {
+                    //如果点的是背景，关闭本页
+                    if (event.targetTouches[0].target.className === "sheet_overlay") {
+                        event.preventDefault();
+                        setTimeout(function () {
+                            instance.close();
+                        }, 0);
+                    }
+
+                    // detect single touch
+                    _clientY = event.targetTouches[0].clientY;
+                }
+            }, false);
+
+            _overlay.addEventListener('touchmove', function (event) {
+                if (event.targetTouches.length === 1) {
+                    // detect single touch
+                    disableRubberBand(event);
+                }
+            }, false);
+
+            var disableRubberBand = function (event) {
+                var clientY = event.targetTouches[0].clientY - _clientY;
+
+                //已经滚动到顶端，不能往下拉
+                if (contentDiv.scrollTop === 0 && clientY > 0) {
+                    event.preventDefault();
+                }
+
+                //已经滚动到底端，不能往上拖
+                if (isOverlayTotallyScrolled() && clientY < 0) {
+                    event.preventDefault();
+                }
+            };
+
+            var isOverlayTotallyScrolled = function () {
+                // https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight#Problems_and_solutions
+                return contentDiv.scrollHeight - contentDiv.scrollTop <= contentDiv.clientHeight;
+            };
+        },
+
+        /**
+         * 根据初始化参数设置对话框外观
+         */
+        initOptions: function () {
+            var options = this.options,
+                $sheet = $(this.element),
+                $container = $sheet.find(".sheet_container_div"),
+                $content = $container.find(".sheet_content_div");
+
+            options.side = options.side || "left";
+            if (options.side !== "left") {
+                options.side = "right";
+            }
+            $container.addClass(options.side);
+
+            options.padding = options.padding !== false;
+            if (!options.padding) {
+                $content.addClass("no_padding")
+            }
+
+
+            //如果options.onShow不为空，那么在show完毕后调用
+            if (options.onShow != null && typeof options.onShow === "function") {
+                $sheet.data("onShowCallback", options.onShow);
+            }
+
+            //如果options.onClose不为空，那么在close时候调用
+            if (options.onClose != null && typeof options.onClose === "function") {
+                $sheet.data("onCloseCallback", options.onClose);
+            }
+
+            var $sheetContentInnerDiv = $sheet.find(".sheet_content_inner_div");
+
+            var content = options.content;
+
+            if (content instanceof jQuery) {
+                content.detach().appendTo($sheetContentInnerDiv);
+                if (!content.is(":visible")) {
+                    content.show();
+                }
+            } else {
+                $sheetContentInnerDiv.html(content);
+            }
+
+        },
+
+
+        createPage: function () {
+            var maskDiv = document.createElement("div"),
+                $maskDiv = $(maskDiv),
+                containerDiv = document.createElement("div"),
+                $containerDiv = $(containerDiv);
+
+            $maskDiv.addClass("sheet_overlay").append(containerDiv);
+
+            $containerDiv.attr("id", "sheet_container_" + this.id)
+                .addClass("sheet_container_div");
+
+            var contentDiv = document.createElement("div"),
+                contentWrapDiv = document.createElement("div"),
+                contentInnerDiv = document.createElement("div");
+
+            $(contentDiv).addClass("sheet_content_div").addClass("z-depth-1");
+            $(contentWrapDiv).addClass("sheet_content_wrap_div");
+            $(contentInnerDiv).addClass("sheet_content_inner_div");
+            contentWrapDiv.appendChild(contentInnerDiv);
+            contentDiv.appendChild(contentWrapDiv);
+            $containerDiv.append(contentDiv);
+
+
+            // var buttons = this.options.buttons;
+            // if (buttons !== undefined && buttons.length > 0) {
+            //     var footerDiv = document.createElement("div");
+            //     $(footerDiv).addClass("bottom_sheet_footer_div");
+            //     $containerDiv.append(footerDiv);
+            // } else {
+            //     $(contentDiv).addClass("full");
+            // }
+
+            $(contentInnerDiv).css("max-width", Math.round($(window).width() * 0.55) + "px")
+                .css("min-width", Math.round($(window).width() * 0.45) + "px");
+
+            document.body.appendChild(maskDiv);
+
+            return maskDiv;
+        },
+
+        clearContent: function () {
+            $(this.element).find(".sheet_content_inner_div").empty();
+            $(this.element).find(".sheet_footer_div").empty();
+        },
+
+        getTransitionEndEventName: function () {
+            if (this.transitionEndEventName != null) {
+                return this.transitionEndEventName;
+            }
+            var el = document.createElement('fake'),
+                transEndEventNames = {
+                    'WebkitTransition': 'webkitTransitionEnd',
+                    'transition': 'transitionend',
+                    'MozTransition': 'transitionend',
+                    'OTransition': 'oTransitionEnd',
+                    'msTransition': 'MSTransitionEnd'
+                };
+
+            for (var t in transEndEventNames) {
+                if (transEndEventNames.hasOwnProperty(t)) {
+                    if (el.style[t] !== undefined) {
+                        this.transitionEndEventName = transEndEventNames[t];
+                        return transEndEventNames[t];
+                    }
+                }
+            }
+            return null;
+        },
+
+        animateHide: function (position, callback) {
+            var $sheet = $(this.element),
+                $container = $sheet.find(".sheet_container_div");
+            $sheet.data("oldPosition", {
+                left: $container.css("left"),
+                bottom: $container.css("bottom"),
+                width: $container.width(),
+                height: $container.height()
+            });
+            $(document.body).removeClass("noScrollSheet");
+            $container.addClass("animate");
+            $container.animate(position, 200, function () {
+                $container.removeClass("animate");
+                $sheet.hide();
+                if (callback != null && (typeof callback === 'function')) {
+                    callback();
+                }
+            })
+        },
+
+        animateShow: function (callback) {
+            var $sheet = $(this.element),
+                $container = $sheet.find(".sheet_container_div");
+            $(document.body).addClass("noScrollSheet");
+            $sheet.show();
+            $container.addClass("animate");
+            $container.animate($sheet.data("oldPosition"), 200, function () {
+                $container.removeClass("animate");
+                $container.css("width", "").css("height", "").css("left", "").css("bottom", "").css("overflow", "");
+                if (callback != null && (typeof callback === 'function')) {
+                    callback();
+                }
+            });
+        },
+
+
+        show: function () {
+            var instance = this;
+            setTimeout(function () {
+                var $sheet = $(instance.element),
+                    $container = $sheet.find(".sheet_container_div");
+                $container.addClass("show");
+                var afterShow = function () {
+                    //调用options.onShow
+                    var onShowCallback = $sheet.data("onShowCallback");
+                    if (onShowCallback != null && typeof onShowCallback === "function") {
+                        onShowCallback();
+                    }
+                    $(document.body).addClass("noScrollSheet");
+                    $sheet.data("onShowCallback", null);
+                };
+
+                var eventName = instance.getTransitionEndEventName();
+                if (eventName != null) {
+                    $container.one(eventName, afterShow);
+                } else {
+                    afterShow();
+                }
+            }, 100);
+        },
+
+        close: function (sheetCloseCallback) {
+            var $sheet = $(this.element);
+            $(document.body).removeClass("noScrollSheet");
+
+            var $container = $sheet.find(".sheet_container_div");
+            $container.removeClass("show");
+
+            var eventName = this.getTransitionEndEventName();
+
+            var removeSheet = function () {
+                //如果按钮是callOnClose的，调用按钮回调函数
+                // var callback = $sheet.data("callback");
+                // if (callback != null && typeof callback === "function") {
+                //     callback();
+                // }
+
+                //调用options.onClose
+                var closeCallback = $sheet.data("onCloseCallback");
+                if (closeCallback != null && typeof closeCallback === "function") {
+                    closeCallback();
+                }
+
+                if (sheetCloseCallback != null && typeof sheetCloseCallback === "function") {
+                    sheetCloseCallback();
+                }
+
+                setTimeout(function () {
+                    $sheet.remove();
+                }, 0);
+            };
+
+            if (eventName != null) {
+                $container.one(eventName, removeSheet);
+
+            } else {
+                removeSheet();
+            }
+
+
+        },
+
+        appear: function () {
+            $(document.body).addClass("noScrollSheet");
+            $(this.element).show();
+        },
+
+        hide: function () {
+            $(document.body).removeClass("noScrollSheet");
+            $(this.element).hide();
+        }
+
+
+    });
+
+    define("InfoPlus.Render.Mobile.Sheet", sheet);
+
+})(window);
+
+/**
  * 工具按钮
  * @Author yech
  * @Since 2017/03/30
@@ -3982,8 +5288,6 @@
      *      department:{string}             //部门
      *      contact:{string}                //联系方式
      *      feedbackUrl:{string}            //反馈地址
-     *      entrustUrl:{string}             //委托地址
-     *      instructionUrl:{string}         //填表说明地址
      *  ｝
      */
     var floatTool = function (options) {
@@ -3992,195 +5296,11 @@
 
     floatTool.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
 
-        //在委托，反馈url上添加四个参数
-        getUrl: function (url) {
-
-            var stepId = $$.params.formStepId == null ? -1 : $$.params.formStepId;
-            url += ("?stepId=" + stepId);
-            if ($$.params.formEntryId != null) {
-                url += ("&entryId=" + $$.params.formEntryId);
-            }
-            if ($$.params.workflowId != null) {
-                url += ("&workflowId=" + $$.params.workflowId);
-            }
-
-            if ($$.params.release != null) {
-                url += ("&workflowRelease=" + $$.params.release);
-            }
-            return url;
-        },
-
-        createContactContent: function () {
-            var options = this.options;
-            var contentDiv = document.createElement("div"),
-                titleDiv = document.createElement("div"),
-                iconSpan = document.createElement("span"),
-                i = document.createElement("i"),
-                titleSpan = document.createElement("span");
-            $(i).addClass("i-icon-assignment");
-            $(iconSpan).addClass("iconSpan").append(i);
-            $(titleSpan).addClass("titleSpan").text(options.workflowName);
-            $(titleDiv).append(iconSpan).append(titleSpan).addClass("contactTitle");
-
-            if ($$.params.formEntryId != null) {
-                var entryIdSpan = document.createElement("span");
-                $(entryIdSpan).text($$.lt("workflow.workflowNo") + "：" + $$.params.formEntryIdDisplay).addClass("entrySpan");
-                $(titleDiv).append(entryIdSpan);
-            }
-
-            var deptContactDiv = document.createElement("div"),
-                departmentDiv = document.createElement("div"),
-                contactDiv = document.createElement("div");
-            $(departmentDiv).text($$.lt("workflow.department") + "：" + options.department).addClass("department");
-            $(contactDiv).text($$.lt("workflow.contact") + "：" + options.contact).addClass("contactStyle");
-            $(deptContactDiv).append(departmentDiv).append(contactDiv).addClass("contactContact");
-
-            $(contentDiv).append(titleDiv).append(deptContactDiv).addClass("contactContent");
-
-            if (options.feedbackUrl != null || options.instructionUrl != null) {
-                var feedbackDiv = document.createElement("div"),
-                    $feedbackDiv = $(feedbackDiv);
-
-                if (options.instructionUrl != null) {
-                    var instructionLink = document.createElement("a"),
-                        $instructionLink = $(instructionLink);
-                    $instructionLink.text($$.lt("common.instruction")).click(function () {
-                        if (!$$.MOBILE) {
-                            var $titleHolder = $("#title_holder"),
-                                titleHeight = $titleHolder.height(),
-                                commandHeight = $("#command_holder").height(),
-                                titleTop = parseInt($titleHolder.parent().css("top"), 10),
-                                titleCommandHeight = titleHeight + commandHeight + (isNaN(titleTop) ? 0 : titleTop),//如果标题栏滚动后隐藏，titleTop会是一个负数
-                                suggestHeight = $(window).height() - titleCommandHeight - 40 - 48 - 4 - 20;//40是dialog的title高度，48是dialog_body的padding,4是iframe的border,20是留白高度，由于Dialog还没创建显示，所以无法动态计算，这里只能写这些固定值，如果未来改变CSS，需要这里改动这些数字
-                            $IU.iframeBox(options.instructionUrl, $$.lt("common.instruction"), true, false, $(window).width(), suggestHeight);
-                        } else {
-                            var page = new InfoPlus.Render.Mobile.Page({
-                                title: $$.lt("common.instruction"),
-                                uri: options.instructionUrl
-                            });
-                            page.show();
-                        }
-                    });
-                    $feedbackDiv.append($instructionLink);
-                }
-
-                if (options.feedbackUrl != null) {
-                    var feedbackLink = document.createElement("a"),
-                        $feedbackLink = $(feedbackLink);
-                    $feedbackLink.text($$.lt("workflow.support")).attr("target", "_blank").attr("href", this.getUrl(options.feedbackUrl));
-                    $feedbackDiv.append($feedbackLink);
-                }
-
-                $feedbackDiv.addClass("feedback");
-                $(contentDiv).append(feedbackDiv);
-            }
-
-
-            var contactContentDiv = document.createElement("div");
-            $(contactContentDiv).addClass("contactContentDiv round-corner z-depth-1").append(contentDiv);
-            //之所以要外面包一层，是为了使鼠标离开图标时候并进入这个联系窗口层之前，不会因为失去hover而变得不可见
-            var wrapDiv = document.createElement("div");
-            $(wrapDiv).append(contactContentDiv).addClass("contactWrapDiv");
-
-            return wrapDiv;
-
-
-        },
-
         render: function () {
-            var options = this.options;
-
-            var div = document.createElement("div"),
-                $div = $(div),
-                toolDiv = document.createElement("div"),
-                $toolDiv = $(toolDiv),
-                contactDiv = document.createElement("div"),
-                $contactDiv = $(contactDiv),
-                scrollDiv = document.createElement("div"),
-                $scrollDiv = $(scrollDiv);
-
-            var i = document.createElement("i");
-            $(i).addClass("i-icon-feedback");
-            $contactDiv.append(i).addClass("contact button z-depth-1");
-
-            $contactDiv.append(this.createContactContent());
-            var hoverDiv = document.createElement("div");
-            $(hoverDiv).addClass("hoverDiv").append($('<table border="0" cellpadding="0" cellspacing="0"><tr><td>' + $$.lt("workflow.help") + '</td></tr></table>'));
-            $contactDiv.append(hoverDiv);
-
-            $toolDiv.append(contactDiv);
-
-            $scrollDiv.attr("id", "toTop").addClass("button z-depth-1");
-            i = document.createElement("i");
-            $(i).addClass("i-icon-publish");
-            $scrollDiv.append(i).css("display", "none");
-
-            hoverDiv = document.createElement("div");
-            $(hoverDiv).addClass("hoverDiv").text($$.lt("workflow.backToTop"));
-            $scrollDiv.append(hoverDiv);
-
-            this.toTopButton = $scrollDiv;
-            $div.attr("id", "float_tool").append(toolDiv);
-
-
-            if (options.entrustUrl != null) {
-                var entrustDiv = document.createElement("div"),
-                    $entrustDiv = $(entrustDiv),
-                    link = document.createElement("a"),
-                    $link = $(link);
-
-                i = document.createElement("i");
-                $(i).addClass("i-icon-user-secret");
-
-
-                $entrustDiv.append(i).addClass("entrust button z-depth-1");
-
-                hoverDiv = document.createElement("div");
-                $(hoverDiv).addClass("hoverDiv").text($$.lt("workflow.entrust"));
-
-
-                $link.append(hoverDiv).attr("target", "_blank").attr("href", this.getUrl(options.entrustUrl));
-                $link.click(function () {
-                    if ($link.data("confirmed") === true) {
-                        $link.data("confirmed", false);
-                        return true;
-                    }
-                    $IU.confirmBox($$.lt("workflow.confirmEntrust"), $$.lt("common.confirm"), $$.lt("common.ok"), 300, function () {
-                        $link.data("confirmed", true);
-                        $IU.fireClick(link);
-                    });
-                    return false;
-                });
-                $entrustDiv.append(link);
-
-                $toolDiv.append(entrustDiv);
-            }
-
-            $div.append(scrollDiv).addClass("floatTool");
-
-
-            return div;
+            return null;
         },
 
         initEvents: function () {
-
-            var $toTop = this.toTopButton;
-
-            $toTop.click(function () {
-                $('html, body').animate({scrollTop: "0px"}, 400);
-                return false;
-            });
-
-            $(window).scroll(function () {
-                //滚动条滚动超过半屏就出现回到顶端
-                var scrollTop = $(window).scrollTop() || document.documentElement.scrollTop;
-                if (scrollTop >= $(window).height() / 2) {
-                    $toTop.show();
-                } else {
-                    $toTop.hide();
-                }
-            });
-
 
         }
 
@@ -4191,9 +5311,9 @@
 })(window);
 
 /**
- * view标签
+ * 移动版view标签
  * @Author yech
- * @Since 2017/04/06
+ * @Since 2019/06/18
  */
 (function (window, undefined) {
     /**
@@ -4207,595 +5327,68 @@
         InfoPlus.Theme.BaseComponent.call(this, options);
     };
 
-    viewLabel.eventRegistered = false;
-    viewLabel.initLabelFullHeight = false;
 
-    // 非常想用const，可惜不是es6
-    var LABEL_PADDING = 5;
-    // ie8,ie9不能用剪切css，否则有bug，不使用剪切，则mouseenter,mouseleave无法使用动画，否则动画时会从view左侧露出一块
-    var FULL_EFFECT = !(navigator.appName === "Microsoft Internet Explorer" &&
-        parseInt(navigator.appVersion.split(";")[1].replace(/[ ]/g, "").replace("MSIE", "")) <= 9);
-
-    var getCurrentLeft = function () {
-        var left = 100000;
-        $(".infoplus_view:visible").each(function () {
-            var $view = $(this);
-            if ($view.offset().left < left) {
-                left = $view.offset().left;
-            }
-        });
-        return left - 2;
-    };
-
-    // 刷新重排标签
-    viewLabel.refreshLabels = function () {
-
-        var getAllViewLabels = function () {
-            var $labels = $$.params.holder.form.find(".infoplus_view_label");
-            //先按照view.index排序
-            $labels.sort(function (a, b) {
-                return $(a).data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).index - $(b).data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).index;
-            });
-            return $labels;
-        };
-
-        var initFullHeight = function ($labels) {
-            for (var i = 0; i < $labels.length; i++) {
-                var $label = $($labels[i]);
-                if ($label.is(":visible")) {
-                    // 每个标签第一次可见的时候设置全高
-                    if ($label.data("fullHeight") === undefined) {
-                        $label.data("fullHeight", $label.outerHeight());
-                    } else {
-                        // 如果发现标签变高了，保留高的尺寸
-                        if ($label.outerHeight() > $label.data("fullHeight")) {
-                            $label.data("fullHeight", $label.outerHeight());
-                        }
-                    }
-                }
-            }
-        };
-
-
-        var setFixPosition = function ($label, top, position) {
-            $label.hide();
-            var $fixedLabel = getFixedLabel($label);
-            if (top !== parseFloat($fixedLabel.css("top"))) {
-                $fixedLabel.css("top", top + "px");
-            }
-            $fixedLabel.data("position", position);
-            if (position === "top") {
-                $fixedLabel.removeClass("bottom").addClass("top");
-            } else {
-                $fixedLabel.removeClass("top").addClass("bottom");
-            }
-
-            $fixedLabel.show();
-        };
-
-        var setFullText = function ($fixedLabel) {
-            $fixedLabel.text($fixedLabel.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).name).data("isAbstract", false).removeClass("isAbstract");
-        };
-
-        var setAbstractText = function ($fixedLabel) {
-            if (!$fixedLabel.data("abstractExpanded")) {
-                $fixedLabel.text($fixedLabel.data("abstractName")).data("isAbstract", true).addClass("isAbstract");
-            }
-        };
-
-        var getFixedLabel = function ($label) {
-            return $label.data("fixedLabel");
-        };
-
-        var getTopFixTop = function (index) {
-            var $commandBar = $("#command_holder"),
-                fixTop = ($commandBar.length > 0 ? $commandBar.height() + 4 : 0);
-
-            for (var j = 0; j < index; j++) {
-                var $label = $($labels[j]),
-                    $view = $($label.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element);
-                if ($view.is(":visible")) {
-                    // 如果view可见，那么增加相应label的高度（绝对定位或者fix定位的标签）
-                    if ($label.is(":visible")) {
-                        fixTop += ($label.outerHeight() + LABEL_PADDING);
-                    } else {
-                        fixTop += (getFixedLabel($label).outerHeight() + LABEL_PADDING);
-                    }
-                }
-            }
-            return fixTop;
-        };
-
-        var getBottomFixTop = function (index) {
-            var fixTop = $(window).height() - getFixedLabel($($labels[index])).outerHeight();
-            for (var j = $labels.length - 1; j > index; j--) {
-                var $fixedLabel = getFixedLabel($($labels[j])),
-                    $view = $($fixedLabel.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element);
-                if ($view.is(":visible")) {
-                    fixTop -= ($fixedLabel.outerHeight() + LABEL_PADDING);
-                }
-            }
-            return fixTop;
-        };
-
-        var setAllLabelVisibility = function ($labels) {
-            $labels.each(function () {
-                var $label = $(this),
-                    $fixedLabel = getFixedLabel($label),
-                    $view = $($label.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element);
-                if ($view.is(":visible")) {
-                    if ($label.is(":visible")) {
-                        $fixedLabel.hide();
-                    }
-                } else {
-                    $label.show();
-                    $fixedLabel.hide();
-                }
-            });
-        };
-
-        // 调整所有fix定位的标签的left
-        var setAllFixLeft = function ($labels, left) {
-            for (var i = 0; i < $labels.length; i++) {
-                var $fixedLabel = getFixedLabel($($labels[i])),
-                    $view = $($fixedLabel.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element);
-                if ($view.is(":visible")) {
-                    if ($fixedLabel.css("position") === "fixed" && !$fixedLabel.data("abstractExpanded")) {
-                        $fixedLabel.css("left", (left - $fixedLabel.outerWidth() + ($fixedLabel.hasClass("infoplus_view_hide") || $fixedLabel.hasClass("isAbstract") ? 2 : 0) + "px"));
-                    }
-                }
-            }
-        };
-
-        // 设置top_background，bottom_background两个fixed定位层位置，这两个层位于fix定位标签的下面(堆叠z-index)，位于view里绝对定位的标签的上面
-        // 所以这两个层可以在上下滚动时，当绝对定位标签和fix定位标签位置有叠加时(滚动后还来不及触发scroll重刷标签定位和位置)，挡住绝对定位的标签
-        var setFixedLabelContainerPosition = function () {
-            var $fixedLabelContainer = $$.params.holder.render.children(".label_container"),
-                $topBackground = $fixedLabelContainer.children(".top_background"),
-                $bottomBackground = $fixedLabelContainer.children(".bottom_background");
-            // 添加底色便于调试观察
-            // $topBackground.css("background-color", "red");
-            // $bottomBackground.css("background-color", "blue");
-
-            var setContainerPosition = function ($container, $labels, info) {
-                if ($labels.length > 0) {
-                    // 找到最高、最低位置
-                    var top = 0, bottom = 0, left = 0, width = 0;
-                    $labels.each(function () {
-                        var topPosition = parseFloat($(this).css("top")),
-                            leftPosition = parseFloat($(this).css("left")),
-                            bottomPosition = topPosition + $(this).outerHeight();
-                        if (top === 0 || topPosition < top) {
-                            top = topPosition;
-                        }
-                        if (left === 0 || leftPosition < left) {
-                            left = leftPosition;
-                            width = $(this).outerWidth();
-                        }
-                        if (bottomPosition > bottom) {
-                            bottom = bottomPosition;
-                        }
-                    });
-                    $container.css("left", left + "px").css("top", (top - LABEL_PADDING) + "px")
-                        .css("width", width + "px").css("height", (bottom - top + 2 * LABEL_PADDING) + "px");
-                } else {
-                    $container.css({"top": "0", "left": "0", "width": "0", "height": "0"});
-                }
-            };
-
-            setContainerPosition($topBackground, $fixedLabelContainer.children(".infoplus_view_label.top:visible"), "top");
-            setContainerPosition($bottomBackground, $fixedLabelContainer.children(".infoplus_view_label.bottom:visible"), "bottom");
-
-            var topBackgroundTop = parseFloat($topBackground.css("top")),
-                topBackgroundHeight = parseFloat($topBackground.css("height")),
-                bottomBackgroundTop = parseFloat($bottomBackground.css("top")),
-                bottomBackgroundHeight = parseFloat($bottomBackground.css("height")),
-                deltaTop;
-
-            if (bottomBackgroundHeight > 0) {
-                if (topBackgroundHeight === 0) {
-                    // 顶部fix定位背景层高度为0，说明没有顶部定位的，找第一个可见的view里面绝对定位的标签，看其位置是否超过了底部fix定位层背景的顶部，超过了就调整所有底部fix定位元素的top
-                    var $firstLabel = $$.params.holder.form.find(".infoplus_view_label:visible").first();
-                    if ($firstLabel.length > 0) {
-                        if ($firstLabel.offset().top + $firstLabel.outerHeight() > bottomBackgroundTop) {
-                            deltaTop = bottomBackgroundTop - ($firstLabel.offset().top + $firstLabel.outerHeight());
-                        }
-                    }
-                } else {
-                    // 顶部fix定位的元素的底部位置已经超过了底部fix定位的顶部位置，调整底部fix定位元素的top
-                    if (topBackgroundTop + topBackgroundHeight - LABEL_PADDING > bottomBackgroundTop) {
-                        deltaTop = bottomBackgroundTop - (topBackgroundTop + topBackgroundHeight - LABEL_PADDING);
-
-                    }
-                }
-                if (deltaTop !== undefined) {
-                    $fixedLabelContainer.children(".bottom").each(function () {
-                        var $label = $(this);
-                        $label.css("top", (parseFloat($label.css("top")) - deltaTop) + "px");
-                    });
-                    $bottomBackground.css("top", (parseFloat($bottomBackground.css("top")) - deltaTop) + "px");
-                }
-            }
-
-        };
-
-        // 查找下一个可见的底部fix定位的标签，如果没有
-        var findNextVisibleBottomFixLabel = function ($labels, index) {
-            var currentIndex = index + 1;
-            while (currentIndex < $labels.length) {
-                var $nextLabel = $($labels[currentIndex]),
-                    $nextFixedLabel = getFixedLabel($nextLabel);
-                // 如果下一个可见的是绝对定位的标签，返回null，让调用的地方直接跳出循环
-                if ($nextLabel.is(":visible")) {
-                    return null;
-                }
-                if ($nextFixedLabel.is(":visible")) {
-                    return $nextFixedLabel;
-                }
-                currentIndex++;
-            }
-            return null;
-        };
-
-        // 根据view是否显示在当前屏幕决定fix定位标签底色，在屏幕内白色底色，屏幕外灰色底色
-        var setFixedLabelClass = function ($view, $fixedLabel, windowTop, windowHeight, toolbarHeight) {
-            var viewTop = $IU.getElementPosition($view[0]).top;
-            if (($view.outerHeight() + viewTop < windowTop + toolbarHeight) || viewTop > windowTop + windowHeight) {
-                $fixedLabel.addClass("infoplus_view_hide");
-            } else {
-                $fixedLabel.removeClass("infoplus_view_hide");
-            }
-        };
-
-        var $labels = getAllViewLabels();
-        if ($labels.length === 0) {
-            return;
-        }
-
-        initFullHeight($labels);
-
-        //如果有多个view，滚动窗口时候调整标签位置和大小
-        var $commandBar = $("#command_holder"),
-            toolbarHeight = ($commandBar.length > 0 ? $commandBar.height() + 4 : 0),
-            outOfWindowIndex = -1,
-            // || document.documentElement.scrollTop是为了避免ie8下的bug
-            windowTop = $(window).scrollTop() || document.documentElement.scrollTop,
-            windowHeight = $(window).height(),
-            left = getCurrentLeft(),
-            lastTopFixPositionIndex;
-
-        for (var i = 0; i < $labels.length; i++) {
-            var $label = $($labels[i]),
-                $view = $($label.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element),
-                fixTop = getTopFixTop(i),
-                // 用getElementPosition而不采用$view.offset().top是为了避免ie8下的错误
-                viewTop = $IU.getElementPosition($view[0]).top,
-                labelHeight = $label.outerHeight();
-
-            if (!$view.is(":visible")) {
-                continue;
-            }
-
-            //先计算是否fix定位
-            //在屏幕上方外面，或者在内部但高度比叠起来的标签最下端要高（在上面）
-            if (viewTop < windowTop + fixTop) {
-                // 以下代码设置节点顶部fix定位
-                // 找到最后一个用顶部fix定位的index
-                if (lastTopFixPositionIndex == null || lastTopFixPositionIndex < i) {
-                    lastTopFixPositionIndex = i;
-                }
-                var $fixedLabel = getFixedLabel($label);
-                setFixPosition($label, fixTop, "top");
-                var labelTop = windowTop + fixTop;
-                // 显示不下了就缩写
-                if ($label.data("fullHeight") + labelTop > $view.outerHeight() + viewTop) {
-                    setAbstractText($fixedLabel);
-                } else {
-                    setFullText($fixedLabel);
-                }
-                setFixedLabelClass($view, $fixedLabel, windowTop, windowHeight, toolbarHeight);
-            } else {
-                //屏幕内
-                if (viewTop + $label.data("fullHeight") < windowTop + windowHeight) {
-                    // 这部分标签可能是view内绝对定位（标记为逻辑A），也可能因为计算下来底部超过下一个可见标签的顶部而底端fix定位，下面会进行计算
-                    $label.show();
-                } else {
-                    //该标签的位置（该标签所在view的顶部位置）在屏幕下方外面，将这个index记下来，下面会将所有index大于等于这个index的标签都沉到底端fix定位
-                    outOfWindowIndex = i;
-                    break;
-                }
-            }
-        }
-
-        if (outOfWindowIndex !== -1) {
-            // 如果没有顶部fix定位的，那么循环终点就是1，有顶部fix定位的，循环终点就是lastTopFixPositionIndex+1
-            // 内含逻辑是，第一个标签不能底部fix定位，要么在view的div里绝对定位，要么是顶部fix定位
-            if (lastTopFixPositionIndex == null) {
-                lastTopFixPositionIndex = 0;
-            }
-
-            for (var index = $labels.length - 1; index > lastTopFixPositionIndex; index--) {
-
-                $label = $($labels[index]);
-                $view = $($label.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element);
-                $fixedLabel = getFixedLabel($label);
-
-                if (index >= outOfWindowIndex) {
-                    // 大于等于outOfWindowIndex全部底部fix定位
-                    if ($view.is(":visible")) {
-                        setAbstractText($fixedLabel);
-                        setFixPosition($label, getBottomFixTop(index), "bottom");
-                        setFixedLabelClass($view, $fixedLabel, windowTop, windowHeight, toolbarHeight);
-                    }
-                } else {
-                    // 调整所有index小于outOfWindowIndex的屏幕内的（逻辑A）可见标签（已经顶部fix定位的元素就不用判断是否超出了下面一个标签的顶部了）
-                    // 如果发现计算下来标签的底部（加了一个padding间隔）超过了下一个标签的顶部，就底部fix定位
-                    if ($view.is(":visible")) {
-                        if (index !== $labels.length - 1 && index !== 0) {
-                            var $nextLabel = findNextVisibleBottomFixLabel($labels, index);
-                            // 如果找不到或者找到的是固定定位的标签，直接跳出循环，不用再计算这个以及后面的标签是否底部超过了下一个标签的顶部
-                            if ($nextLabel == null) {
-                                break;
-                            }
-                            if ($label.offset().top + $label.outerHeight() + LABEL_PADDING > $nextLabel.offset().top) {
-                                setAbstractText($fixedLabel);
-                                setFixPosition($label, getBottomFixTop(index), "bottom");
-                                // 这部分标签所在view都在屏幕内，所以显示白色底色
-                                $fixedLabel.removeClass("infoplus_view_hide");
-                            } else {
-                                // 标签底部没超过下一个底部fix定位标签的顶部，那么也就不用再循环了
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        setAllLabelVisibility($labels);
-        setAllFixLeft($labels, left);
-        setFixedLabelContainerPosition();
-    };
-
-    var createLabelContainer = function () {
-        var container = document.createElement("div");
-        $$.params.holder.render.append(container);
-        var $fixedLabelContainer = $(container);
-        $fixedLabelContainer.addClass("label_container");
-        var backgroundColor = $("#renderContent_holder").css("background-color");
-        var topContainer = document.createElement("div"),
-            bottomContainer = document.createElement("div"),
-            $topContainer = $(topContainer),
-            $bottomContainer = $(bottomContainer);
-        $topContainer.addClass("top_background").css("background-color", backgroundColor);
-        $bottomContainer.addClass("bottom_background").css("background-color", backgroundColor);
-        $fixedLabelContainer.append(topContainer).append(bottomContainer);
-
-        // ie8 ie9 用这个剪裁都会有bug，放弃clip方案
-        if (FULL_EFFECT) {
-            // 设置top:-10000px是因为发现ie以及edge中设置0的时候第一个fix定位的标签会不能按，看上去剪裁区域计算有误，别的浏览器设置top:0没有问题
-            $fixedLabelContainer.css("clip", "rect(-10000px, 298px, auto, 0px)");
-        }
-
-        return $fixedLabelContainer;
-    };
-
+    viewLabel.STATUS_EXPANDED = "expanded";
+    viewLabel.ICON_CLASS_EXPANDED = "i-icon-angle-double-up";
+    viewLabel.ICON_CLASS_UNEXPANDED = "i-icon-angle-double-down";
     viewLabel.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
 
+
         render: function () {
-
             var view = this.view;
-
             var labelDiv = document.createElement("div"),
-                $labelDiv = $(labelDiv);
-            $labelDiv.attr("id", view.prefix + "label_" + view.index).text(view.name)
-                .addClass("infoplus_view_label round-corner z-depth-0")
-                .data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT, view).data("label", this);
+                hr = document.createElement("hr"),
+                textDiv = document.createElement("div"),
+                $labelDiv = $(labelDiv),
+                icon = document.createElement("i");
 
-            //产生缩写标签
-            var name = view.name,
-                charReg = new RegExp("[^\x00-\xff]"),
-                abstractName = '';
-            if (charReg.test(name.charAt(0))) {
-                abstractName = name.charAt(0);
-            } else {
-                for (var charIndex = 0, nameLen = name.length; charIndex < nameLen; charIndex++) {
-                    if (!charReg.test(name.charAt(charIndex))) {
-                        abstractName += name.charAt(charIndex);
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            if (abstractName.length > 3) {
-                abstractName = abstractName.substr(0, 3);
-            }
-
-            $(labelDiv).data("abstractName", abstractName);
-
-            // 如果发现fix定位标签容器还没创建，就创建容器
-            if (viewLabel.$fixedLabelContainer === undefined) {
-                viewLabel.$fixedLabelContainer = createLabelContainer();
-            }
-            // 将当前标签clone一份放到fix定位标签容器中
-            viewLabel.$fixedLabelContainer.append(this.clone(labelDiv));
+            $labelDiv.attr("id", view.prefix + "label_" + view.index);
+            $labelDiv.addClass("infoplus_view_label");
+            $labelDiv.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT, view).data("label", this);
+            $labelDiv.append(icon).append(textDiv);
+            $(textDiv).text(view.name).addClass("label_text");
+            $(icon).addClass(viewLabel.ICON_CLASS_EXPANDED);
+            $labelDiv.data(viewLabel.STATUS_EXPANDED, true);
             return labelDiv;
         },
 
-        clone: function (labelDiv) {
-            var view = this.view,
-                $labelDiv = $(labelDiv),
-                fixedLabelDiv = document.createElement("div"),
-                $fixedLabelDiv = $(fixedLabelDiv);
+        expand: function (animate) {
+            var $label = $(this.element);
+            $label.removeClass("unexpanded");
+            $label.children("i").attr("class", viewLabel.ICON_CLASS_EXPANDED);
+            this.view.expand(animate);
+            $label.data(viewLabel.STATUS_EXPANDED, true);
+        },
 
-            $fixedLabelDiv.attr("id", view.prefix + "fixed_label_" + view.index).text(view.name)
-                .addClass("infoplus_view_label round-corner z-depth-0")
-                .data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT, view).data("label", this)
-                .data("abstractName", $labelDiv.data("abstractName"));
-            $labelDiv.data("fixedLabel", $fixedLabelDiv);
-            return fixedLabelDiv;
+        shrink: function (animate) {
+            var $label = $(this.element);
+            $label.addClass("unexpanded");
+            $label.children("i").attr("class", viewLabel.ICON_CLASS_UNEXPANDED);
+            this.view.shrink(animate);
+            $label.data(viewLabel.STATUS_EXPANDED, false);
+        },
+
+        isExpanded: function () {
+            return $(this.element).data(viewLabel.STATUS_EXPANDED) === true;
+        },
+
+        toggle: function () {
+            if (this.isExpanded()) {
+                this.shrink(true);
+            } else {
+                this.expand(true);
+            }
         },
 
         initEvents: function () {
-            var getAnimateLeft = function ($label, left, width) {
-                return left - width + ($label.hasClass("infoplus_view_hide") || $label.hasClass("isAbstract") ? 2 : 0);
-            };
-
-            var labelMouseEnter = function () {
-                var $label = $(this);
-                if (!$label.data("isAbstract")) return;
-                $label.stop(true, true);
-                var oldLeft = getCurrentLeft();
-                $label.text($label.data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).name);
-                $label.addClass("horz");
-                var newWidth = $label.outerWidth();
-                var newLeft = oldLeft - newWidth;
-                if (FULL_EFFECT) {
-                    $label.animate({
-                        left: newLeft + "px"
-                    });
-                } else {
-                    $label.css("left", newLeft + "px");
+            $(this.element).click(function () {
+                var viewLabel = $(this).data("label");
+                if (viewLabel != null) {
+                    viewLabel.toggle();
                 }
-                $label.data("abstractExpanded", true);
-            };
-
-            var labelMouseLeave = function () {
-                var $label = $(this);
-                if (!$label.data("abstractExpanded")) return;
-                $label.stop(true, true);
-                var left = getCurrentLeft();
-                $label.removeClass("horz");
-                var width = $label.outerWidth();
-                $label.addClass("horz");
-                //还是显示缩写的动画还原
-                if ($label.data("isAbstract")) {
-                    if (FULL_EFFECT) {
-                        $label.animate({
-                            left: getAnimateLeft($label, left, width) + "px"
-                        }, function () {
-                            $label.removeClass("horz");
-                            $label.text($label.data("abstractName"));
-                            $label.removeData("abstractExpanded");
-                        });
-                    } else {
-                        $label.css("left", getAnimateLeft($label, left, width) + "px");
-                        $label.removeClass("horz");
-                        $label.text($label.data("abstractName"));
-                        $label.removeData("abstractExpanded");
-                    }
-                } else {
-                    //已经显示全文字的直接还原
-                    $label.removeClass("horz");
-                    //如果仍旧是fix定位的计算left,如果标签回到view的dom里面用fix定位的，直接将left样式删除
-                    if ($label.css("position") === "fixed") {
-                        $label.css("left", getAnimateLeft($label, left, width) + "px");
-                    } else {
-                        $label.css("left", "");
-                    }
-                    $label.removeData("abstractExpanded");
-                }
-            };
-
-            var bindMouseEvent = function () {
-                unbindMouseEvent();
-                $(document.body).on("mouseenter.viewLabel", ".infoplus_view_label", labelMouseEnter);
-                $(document.body).on("mouseleave.viewLabel", ".infoplus_view_label", labelMouseLeave);
-            };
-
-            var unbindMouseEvent = function () {
-                $(document.body).off(".viewLabel");
-            };
-
-            var scrollCount = 0;
-            var onWindowScroll = function () {
-                // 将所有标签横向展开都收拢
-                $(".infoplus_view_label").each(function () {
-                    var $label = $(this);
-                    if ($label.data("abstractExpanded")) {
-                        $label.stop(true, true);
-                        if ($label.css("position") === "fixed") {
-                            var left = getCurrentLeft();
-                            $label.removeClass("horz");
-                            var width = $label.outerWidth();
-                            $label.css("left", getAnimateLeft($label, left, width) + "px");
-                            $label.text($label.data("abstractName"));
-                            $label.removeData("abstractExpanded");
-                        } else {
-                            $label.css("left", "");
-                            $label.removeClass("horz");
-                            $label.removeData("abstractExpanded");
-                        }
-                    }
-                });
-
-                viewLabel.refreshLabels();
-            };
-
-            var bindScrollEvent = function () {
-                unbindScrollEvent();
-                $(window).on("scroll.windowScroll", onWindowScroll);
-            };
-
-            var unbindScrollEvent = function () {
-                $(window).off(".windowScroll");
-            };
-
-            // var isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-            var onLabelClick = function () {
-                //点击时候发现已经展开显示，那么重新显示缩写标签，重算标签位置
-                var $label = $(this);
-                if ($label.data("abstractExpanded") === true) {
-                    $label.stop(true, true);
-                    var left = getCurrentLeft();
-                    $label.removeClass("horz");
-                    var width = $label.outerWidth();
-                    $label.css("left", getAnimateLeft($label, left, width) + "px");
-                    $label.text($label.data("abstractName"));
-                    $label.removeData("abstractExpanded");
-                }
-
-                unbindMouseEvent();
-                //用$IU.getElementPosition可以避免ie8下直接用jquery的offset()方法位置不准确的问题(屏幕滚动几下就不准确了)
-                $IU.scrollTo($IU.getElementPosition($(this).data(InfoPlus.Layout.View.DATA_CONTROL_OBJECT).element).top - 40, 500, function () {
-                    bindMouseEvent();
-                });
-            };
-
-            var bindLabelClickEvent = function () {
-                $(document.body).on("click.viewLabelClick", ".infoplus_view_label", onLabelClick);
-            };
-
-            // 重新计算剪裁区域
-            var setClip = function () {
-                if (FULL_EFFECT) {
-                    var margin = parseFloat($(".infoplus_view:visible").last().css("margin-bottom"));
-                    var bottom = (viewLabel.$fixedLabelContainer.height() - margin) + "px";
-                    viewLabel.$fixedLabelContainer.css("clip", "rect(-10000px, 298px, " + bottom + ", 0px)");
-                }
-            };
-
-            //以下事件只注册一次
-            if (!viewLabel.eventRegistered) {
-                viewLabel.eventRegistered = true;
-                $$.visible(function () {
-                    viewLabel.refreshLabels();
-
-                    $(window).resize(function () {
-                        viewLabel.refreshLabels();
-                        setClip();
-                    });
-                    bindScrollEvent();
-                    bindMouseEvent();
-                    bindLabelClickEvent();
-
-                    // 延时一秒初始化剪裁区域，不延时$fixedLabelContainer.height()会多一些，原因不详
-                    setTimeout(setClip, 1000);
-                });
-
-            }
+            });
         }
+
     });
 
     define("InfoPlus.Render.ViewLabel", viewLabel);
@@ -5771,13 +6364,12 @@
      *     popper                                   //弹出该窗口的元素
      *     requestUrl                               //请求url
      *     requestData                              //请求参数,其中keyword内容用?替换
-     *     dataEntityName                           //返回数据名称(目前可能是candidates,reviewers)
+     *     dataEntityName                           //返回数据名称
      *  ｝
      */
     var candidates = function (options) {
         InfoPlus.Theme.BaseComponent.call(this, options);
     };
-
 
     var KEYS = {
         TAB: 9,
@@ -5790,17 +6382,9 @@
         lastRequestKeyword: null,
 
         requestData: function () {
-
-            var getConvertedQueryKeyword = function (keyword) {
-                keyword = keyword || "";
-                keyword = keyword.replace('\\', '\\\\');
-                keyword = keyword.replace('"', '\\"');
-                return '"' + keyword + '"';
-            };
-
             var self = this,
                 options = this.options,
-                keyword = getConvertedQueryKeyword($(this.searchInput).val()),
+                keyword = '"' + $(this.searchInput).val() + '"',
                 query = options.requestData.replace("?", keyword),
                 $resultList = $(this.resultList);
             this.lastRequestKeyword = $(this.searchInput).val();
@@ -5841,7 +6425,7 @@
                                     }
                                     li = document.createElement("li");
                                     $li = $(li);
-                                    $li.text(text).attr("title", text).data("user", user);
+                                    $li.text(text).attr("title", text);
                                     $resultList.append(li);
                                     var email = user.email;
                                     if ($IU.isEmptyStr(email) && $$.params.synthesizeEmail &&
@@ -5866,7 +6450,6 @@
                         }
                     }
                 }
-
             });
             this.show();
         },
@@ -5891,26 +6474,29 @@
 
             $searchInput.addClass("candidatesSearchInput").attr("placeholder", $$.lt("candidates.searchKeyword")).data("control", this);
             $searchDiv.append(searchInput).addClass("candidatesSearchDiv");
-            $containerDiv.append(searchDiv).append(resultList);
+            $containerDiv.append(searchDiv).append(resultList).addClass("candidatesContainer");
             $resultList.addClass("candidatesResult");
-
-            var popWin = new InfoPlus.Render.PopWin({
-                popper: options.popper,
-                content: $containerDiv
+            var page = new InfoPlus.Render.Mobile.Page({
+                content: $containerDiv,
+                buttons: [{name: $$.lt("common.close")}],
+                onShow: function () {
+                    $resultList.css("height", ($containerDiv.outerHeight() - 30) + "px");
+                }
             });
+
 
             this.searchInput = searchInput;
             this.resultList = resultList;
-            this.popWin = popWin;
-            return popWin.element;
+            this.page = page;
+            return page.element;
         },
 
         show: function () {
-            this.popWin.show();
+            this.page.show();
         },
 
         close: function () {
-            this.popWin.close();
+            this.page.close();
         },
 
         initEvents: function () {
@@ -6130,8 +6716,19 @@
     };
 
     layout.prototype = $.extend(new InfoPlus.Theme.BaseComponent(), {
-        render: function () {
 
+        currentViewIndex: 0,
+
+        setCurrentViewIndex: function (index) {
+            this.currentViewIndex = index;
+        },
+
+        getCurrentViewIndex: function () {
+            return this.currentViewIndex;
+        },
+
+
+        render: function () {
             var options = this.options,
                 views = options.views,
                 introduce = options.introduce,
@@ -6141,107 +6738,138 @@
                 return;
             }
 
-            //创建上一页按钮
-            var createPreviousButton = function (viewDom, introduceDom) {
+            var createPreviousButton = function () {
                 var span = document.createElement("span"),
                     button = document.createElement("a");
-                $(button).addClass("preview_previous_button").attr("href", "#").text($$.lt("preview.previous"))
-                    .data("viewDom", viewDom).data("introduceDom", introduceDom);
-                $(span).append(button);
-
+                $(button).addClass("preview_previous_button").attr("href", "#").text($$.lt("preview.previous"));
+                $(span).append(button).css("display", "none");
                 return span;
             };
 
-            //创建下一页按钮
-            var createNextButton = function (viewDom, introduceDom) {
+            var createNextButton = function () {
                 var span = document.createElement("span"),
                     button = document.createElement("a");
-                $(button).addClass("preview_next_button").attr("href", "#").text($$.lt("preview.next"))
-                    .data("viewDom", viewDom).data("introduceDom", introduceDom);
+                $(button).addClass("preview_next_button").attr("href", "#").text($$.lt("preview.next"));
                 $(span).append(button);
                 return span;
             };
 
-
-            var introduceDom = introduce.getElement(),
-                $introduceDom = $(introduceDom),
-                startDom = start.getElement(),
-                $startDom = $(startDom);
+            var $introduce = $(introduce.getElement()),
+                $start = $(start.getElement());
 
             for (var i = 0, len = views.length; i < len; i++) {
                 var viewDom = views[i].element,
                     $viewDom = $(viewDom),
-                    isFirstView = (i === 0),
-                    isLastView = (i === len - 1);
+                    isFirstView = (i === 0);
 
                 if (isFirstView) {
-                    $viewDom.prepend($introduceDom);
-                }
-                $viewDom.addClass("preview_view");
-
-                var commandBarDiv = document.createElement("div");
-                $(commandBarDiv).addClass("preview_command_bar");
-
-                if (isLastView) {
-                    $(commandBarDiv).append($startDom);
-                    if (!isFirstView) {
-                        if (startDom != null) {
-                            $startDom.before(createPreviousButton(viewDom, introduceDom));
-                        } else {
-                            $(commandBarDiv).append(createPreviousButton(viewDom, introduceDom));
-                        }
-                    }
+                    $viewDom.prepend($introduce);
+                    $viewDom.parents(".infoplus_view_wrap_outer").addClass("preview_view");
                 } else {
-                    if (!isFirstView) {
-                        $(commandBarDiv).append(createPreviousButton(viewDom, introduceDom));
-                    }
-                    $(commandBarDiv).append(createNextButton(viewDom, introduceDom));
-                }
-                $viewDom.append(commandBarDiv);
-                introduce.show();
-
-                if (!isFirstView) {
-                    $viewDom.hide();
+                    $viewDom.parents(".infoplus_view_wrap_outer").hide();
                 }
             }
 
-            if ($("#header_holder").length === 0) {
-                $("#renderContent_holder").addClass("no_header");
+            var commandBarDiv = document.createElement("div"),
+                $commandBarDiv = $(commandBarDiv);
+            $commandBarDiv.addClass("preview_command_bar").append($start);
+
+            $("#renderForm").after($commandBarDiv);
+            if (views.length > 1) {
+                $start.before(createPreviousButton());
+                $start.before(createNextButton());
+                start.hide();
+                this.currentViewIndex = 0;
             }
 
 
-            return null;
+            //if (!$IU.isEmptyStr($$.params.back)) {
+            if ($IU.showBackIcon()) {
+                var headerHolderDiv = document.createElement("div");
+                var titleHolderDiv = document.createElement("div");
+                $(titleHolderDiv).attr("id", "title_holder").addClass("preview");
+                $(headerHolderDiv).attr("id", "header_holder").append(titleHolderDiv);
+                $("#renderContent_holder").before(headerHolderDiv).addClass("title_only");
+                this.createTitleIcon();
+            } else {
+                if ($("#header_holder").length === 0) {
+                    $("#renderContent_holder").addClass("no_header");
+                }
+            }
+
+
+            introduce.show();
+        },
+
+
+        createTitleIcon: function () {
+            var icon = new InfoPlus.Render.TitleIcon({
+                id: 'title_icon',
+                back: true,
+                onClick: function () {
+                    $IU.processBack($$.params.back);
+                    //window.location.href = $$.params.back;
+                    return false;
+                }
+            });
+            $("#title_holder").append(icon.getElement());
         },
 
         initEvents: function () {
+            var instance = this,
+                start = this.options.start,
+                introduce = this.options.introduce;
+            var adjustViewPage = function ($views, index) {
+                document.body.scrollTop = 0;
+                document.documentElement.scrollTop = 0;
+                var $viewOuterDiv = $($views[index]);
+                $viewOuterDiv.find(".infoplus_view").prepend($(introduce.getElement()));
+                $viewOuterDiv.fadeIn();
+                $(".preview_command_bar").fadeIn();
+                if (index !== 0) {
+                    $(".preview_previous_button").parent().show();
+                } else {
+                    $(".preview_previous_button").parent().hide();
+                }
+                if (index !== $views.size() - 1) {
+                    $(".preview_next_button").parent().show();
+                    start.hide();
+                } else {
+                    $(".preview_next_button").parent().hide();
+                    start.show();
+                }
+
+                instance.setCurrentViewIndex(index);
+            };
+
             //处理上一页点击事件
             $(".preview_previous_button").click(function () {
-                var $view = $($(this).data("viewDom")),
-                    $prevView = $view.prev(".infoplus_view"),
-                    $introduce = $($(this).data("introduceDom"));
-                $view.fadeOut(function () {
-                    $($prevView).prepend($introduce);
-                    document.body.scrollTop = 0;
-                    document.documentElement.scrollTop = 0;
-                    $prevView.fadeIn();
+                var $views = $(".infoplus_view_wrap_outer");
+                var index = instance.getCurrentViewIndex();
+                $(".preview_command_bar").fadeOut();
+                $($views[index]).fadeOut(function () {
+                    if (--index >= 0) {
+                        adjustViewPage($views, index);
+                    }
                 });
                 return false;
             });
 
             //处理下一页点击事件
             $(".preview_next_button").click(function () {
-                var $view = $($(this).data("viewDom")),
-                    $nextView = $view.next(".infoplus_view"),
-                    $introduce = $($(this).data("introduceDom"));
-                $view.fadeOut(function () {
-                    $($nextView).prepend($introduce);
-                    document.body.scrollTop = 0;
-                    document.documentElement.scrollTop = 0;
-                    $nextView.fadeIn();
+                var $views = $(".infoplus_view_wrap_outer"),
+                    totalViewCount = $views.size();
+                var index = instance.getCurrentViewIndex();
+                $(".preview_command_bar").fadeOut();
+                $($views[index]).fadeOut(function () {
+                    if (++index < totalViewCount) {
+                        adjustViewPage($views, index);
+                    }
                 });
                 return false;
             });
         }
+
     });
 
     define("InfoPlus.Preview.Layout", layout);
